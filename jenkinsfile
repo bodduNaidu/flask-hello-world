@@ -1,0 +1,55 @@
+pipeline {
+    agent any
+
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                git 'https://github.com/bodduNaidu/flask-hello-world.git'
+            }
+        }
+
+        stage('Build and Test') {
+            steps {
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install -r requirements.txt
+                    pytest --maxfail=1 --disable-warnings -q
+                '''
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} ."
+            }
+        }
+
+        
+
+        stage('Deploy on EC2') {
+            steps {
+                sshagent(['ec2-ssh-key']) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_SERVER} '
+                            docker pull ${IMAGE_NAME}:latest &&
+                            docker stop flask || true &&
+                            docker rm flask || true &&
+                            docker run -d --name flask -p 80:5000 ${IMAGE_NAME}:latest
+                        '
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Deployment successful!'
+        }
+        failure {
+            echo '❌ Build failed!'
+        }
+    }
+}
